@@ -31,17 +31,17 @@
 
 🔹 **Fitur REST API:**
 
-🤖 **AI Chat** – Ngobrol dengan berbagai model AI canggih.
-📡 **API List** – Koleksi berbagai API siap pakai.
-📰 **Berita Terkini** – Dapatkan berita terbaru dari berbagai kategori.
-📥 **Download** – Unduh video atau konten dari link langsung.
-🎮 **Game** – Mainkan game ringan langsung dari API.
-🎨 **Image Creator** – Buat gambar dari prompt teks.
-📱 **Order Kuota** – Beli paket data dengan mudah lewat API.
-🎲 **Random** – Dapatkan quotes atau gambar secara acak.
-🔍 **Search** – Cari konten atau data yang kamu butuhkan.
-🕵️‍♂️ **Stalk** – Lihat profil orang di Instagram atau TikTok.
-🧰 **Tools** – Kumpulan alat bantu praktis dalam satu tempat.
+- 🤖 **AI Chat** – Ngobrol dengan berbagai model AI canggih.
+- 📡 **API List** – Koleksi berbagai API siap pakai.
+- 📰 **Berita Terkini** – Dapatkan berita terbaru dari berbagai kategori.
+- 📥 **Download** – Unduh video atau konten dari link langsung.
+- 🎮 **Game** – Mainkan game ringan langsung dari API.
+- 🎨 **Image Creator** – Buat gambar dari prompt teks.
+- 📱 **Order Kuota** – Beli paket data dengan mudah lewat API.
+- 🎲 **Random** – Dapatkan quotes atau gambar secara acak.
+- 🔍 **Search** – Cari konten atau data yang kamu butuhkan.
+- 🕵️‍♂️ **Stalk** – Lihat profil orang di Instagram atau TikTok.
+- 🧰 **Tools** – Kumpulan alat bantu praktis dalam satu tempat.
 
 ---
 
