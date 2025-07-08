@@ -1,7 +1,10 @@
 // Import necessary libraries
 const axios = require('axios');
+const fs = require('fs');
 const crypto = require("crypto");
+const FormData = require('form-data');
 const QRCode = require('qrcode');
+const bodyParser = require('body-parser');
 const sharp = require('sharp'); // <-- Added for image manipulation
 const { ImageUploadService } = require('node-upload-images');
 
@@ -36,7 +39,7 @@ function convertCRC16(str) {
  * @returns {string} A formatted transaction ID.
  */
 function generateTransactionId() {
-    return `AllxdDev-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+    return crypto.randomBytes(5).toString('hex').toUpperCase();
 }
 
 /**
@@ -58,7 +61,7 @@ async function elxyzFile(buffer) {
     return new Promise(async (resolve, reject) => {
         try {
             const service = new ImageUploadService('pixhost.to');
-            // Uploads the buffer with a specified filename
+            // Uploads the buffer with a more descriptive filename
             let { directLink } = await service.uploadFromBinary(buffer, 'qris-with-logo.png');
             resolve(directLink);
         } catch (error) {
@@ -67,31 +70,6 @@ async function elxyzFile(buffer) {
         }
     });
 }
-
-/**
- * Generates a QRIS code string with a dynamic amount.
- * @param {string} baseCode The base QRIS string without amount and CRC.
- * @param {string|number} amount The transaction amount.
- * @returns {string} The final, valid QRIS string.
- */
-function constructQRISString(baseCode, amount) {
-    // Ensure amount is a string
-    const amountStr = String(amount);
-    
-    // Per QRIS standard, the amount is encoded in tag '54'
-    // Format: [Tag '54'][Length of amount][Amount]
-    const amountTag = "54" + ("0" + amountStr.length).slice(-2) + amountStr;
-
-    // Reconstruct the QRIS string with the dynamic amount
-    const qrisParts = baseCode.split("5802ID");
-    const stringToHash = qrisParts[0] + amountTag + "5802ID" + qrisParts[1];
-    
-    // Calculate the new CRC16 checksum and append it
-    const finalQRIS = stringToHash + convertCRC16(stringToHash);
-
-    return finalQRIS;
-}
-
 
 /**
  * Generates a QR code, overlays a logo in the center, and returns the image as a buffer.
@@ -120,7 +98,7 @@ async function createQRImageWithLogo(qrisString, logoUrl) {
         const qrImage = sharp(qrCodeBuffer);
         const metadata = await qrImage.metadata();
         
-        // Resize logo to be ~25% of the QR code's width
+        // Resize logo to be ~25% of the QR code's width for good readability
         const logoWidth = Math.floor(metadata.width * 0.25);
 
         const finalImageBuffer = await qrImage
@@ -138,7 +116,6 @@ async function createQRImageWithLogo(qrisString, logoUrl) {
     }
 }
 
-
 /**
  * Main function to create a QRIS payment object.
  * It generates the QR code with a logo, uploads it, and returns the transaction details.
@@ -149,24 +126,31 @@ async function createQRImageWithLogo(qrisString, logoUrl) {
 async function createQRIS(amount, codeqr) {
     try {
         // Prepare the base QRIS string by removing the old CRC and setting it to dynamic (010212)
-        const baseCode = codeqr.slice(0, -4).replace("010211", "010212");
-        
-        // Construct the full QRIS string with the new amount and CRC
-        const finalQRISString = constructQRISString(baseCode, amount);
-        
+        let qrisData = codeqr.slice(0, -4);
+        const step1 = qrisData.replace("010211", "010212");
+        const step2 = step1.split("5802ID");
+
+        // Construct the amount tag
+        amount = amount.toString();
+        let uang = "54" + ("0" + amount.length).slice(-2) + amount;
+        uang += "5802ID";
+
+        // Reconstruct the full QRIS string with the new amount and calculate the new CRC
+        const finalQRISString = step2[0] + uang + step2[1] + convertCRC16(step2[0] + uang + step2[1]);
+
         // URL for your logo
         const logoUrl = 'https://chek-status-qris.vercel.app/logo.png';
-        
+
         // Generate the QR code image buffer with the logo
         const imageBufferWithLogo = await createQRImageWithLogo(finalQRISString, logoUrl);
-        
+
         // Upload the final image
         const uploadedFileUrl = await elxyzFile(imageBufferWithLogo);
 
         // Return the final transaction object
         return {
             idtransaksi: generateTransactionId(),
-            jumlah: String(amount),
+            jumlah: amount,
             expired: generateExpirationTime(),
             imageqris: {
                 url: uploadedFileUrl
@@ -179,51 +163,95 @@ async function createQRIS(amount, codeqr) {
 }
 
 
-// This function remains for checking mutation status. No changes needed here.
-async function checkQRISStatus() {
-    try {
-        const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/isi pakai merchant orkut/apikey orkut`;
-        const response = await axios.get(apiUrl);
-        const result = response.data;
-        const data = result.data;
-        let capt = '*Q R I S - M U T A S I*\n\n';
-        if (data.length === 0) {
-            capt += 'Tidak ada data mutasi.';
-        } else {
-            data.forEach(entry => {
-                capt += '```Tanggal:```' + ` ${entry.date}\n`;
-                capt += '```Issuer:```' + ` ${entry.brand_name}\n`;
-                capt += '```Nominal:```' + ` Rp ${entry.amount}\n\n`;
-            });
-        }
-        return capt;
-    } catch (error) {
-        console.error('Error checking QRIS status:', error);
-        throw error;
-    }
-}
+// Module export for use in an Express app
+module.exports = function(app) {
 
-
-// Module export for use in an Express-like framework
-module.exports = {
-    name: 'Create Payment',
-    desc: 'Create qr payment to orkut with a logo',
-    category: 'Order Kuota',
-    params: ['amount', 'codeqr'],
-    async run(req, res) {
-        const { amount, codeqr } = req.query;
-        if (!amount) return res.status(400).json({ status: false, error: 'Amount is required' });
-        if (!codeqr) return res.status(400).json({ status: false, error: 'QrCode is required' });
+    // Route to create a new payment QRIS
+    app.get('/orderkuota/createpayment', async (req, res) => {
+        const { apikey, amount, codeqr } = req.query;
         
+        // Basic validation
+        if (!apikey || !global.apikey || !global.apikey.includes(apikey)) {
+            return res.status(401).json({ status: false, error: "Apikey tidak valid." });
+        }
+        if (!amount) {
+            return res.status(400).json({ status: false, error: "Amount is required." });
+        }
+        if (!codeqr) {
+            return res.status(400).json({ status: false, error: "codeqr is required." });
+        }
+
         try {
-            // Call the main creation function
+            // Call the main creation function which now includes the logo
             const qrData = await createQRIS(amount, codeqr);
             res.status(200).json({
                 status: true,
                 result: qrData
             });
         } catch (error) {
+            console.error("Error in /createpayment route:", error);
             res.status(500).json({ status: false, error: error.message });
         }
-    }
+    });
+
+    // Route to check the latest transaction status
+    app.get('/orderkuota/cekstatus', async (req, res) => {
+        const { merchant, keyorkut, apikey } = req.query;
+
+        if (!apikey || !global.apikey || !global.apikey.includes(apikey)) {
+            return res.status(401).json({ status: false, error: "Apikey tidak valid." });
+        }
+        
+        try {
+            const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
+            const response = await axios.get(apiUrl);
+            const result = response.data; // axios automatically parses JSON
+
+            const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
+
+            if (latestTransaction) {
+                res.status(200).json({
+                    status: true,
+                    result: latestTransaction
+                });
+            } else {
+                res.status(404).json({ status: false, message: "No transactions found." });
+            }
+        } catch (error) {
+            console.error("Error in /cekstatus route:", error);
+            res.status(500).json({ status: false, error: error.message });
+        }
+    });
+
+    // Route to check the QRIS balance
+    app.get('/orderkuota/ceksaldo', async (req, res) => {
+        const { merchant, keyorkut, apikey } = req.query;
+        
+        if (!apikey || !global.apikey || !global.apikey.includes(apikey)) {
+            return res.status(401).json({ status: false, error: "Apikey tidak valid." });
+        }
+        
+        try {
+            const apiUrl = `https://gateway.okeconnect.com/api/mutasi/qris/${merchant}/${keyorkut}`;
+            const response = await axios.get(apiUrl);
+            const result = response.data;
+
+            const latestTransaction = result.data && result.data.length > 0 ? result.data[0] : null;
+
+            if (latestTransaction && latestTransaction.balance !== undefined) {
+                res.status(200).json({
+                    status: true,
+                    result: {
+                        saldo_qris: latestTransaction.balance
+                    }
+                });
+            } else {
+                res.status(404).json({ status: false, message: "Could not retrieve balance or no transactions found." });
+            }
+        } catch (error) {
+            console.error("Error in /ceksaldo route:", error);
+            res.status(500).json({ status: false, error: error.message });
+        }
+    });
+
 };
